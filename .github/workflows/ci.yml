@@ -1,4 +1,4 @@
-name: CarePlus CI Pipeline
+name: Add CI pipeline for building and pushing Docker images
 
 on:
   push:
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
@@ -21,14 +21,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build Backend Image
+      - name: Build backend
         run: docker build -t amakye94/careplus-backend:latest ./backend
 
-      - name: Build Frontend Image
+      - name: Build frontend
         run: docker build -t amakye94/careplus-frontend:latest ./frontend
 
-      - name: Push Backend Image
+      - name: Push backend image
         run: docker push amakye94/careplus-backend:latest
 
-      - name: Push Frontend Image
+      - name: Push frontend image
         run: docker push amakye94/careplus-frontend:latest
