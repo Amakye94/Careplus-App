@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Care+ — Patient</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <a href="index.html" class="button">← Back</a>
+    <h1>Patient</h1>
+  </header>
+
+  <main>
+    <!-- Patient Info -->
+    <section class="card">
+      <h3 id="patientName">Loading…</h3>
+      <p id="patientType"></p>
+    </section>
+
+    <!-- Log Reading -->
+    <section class="card">
+      <h3>Log Reading</h3>
+      <div class="row">
+        <input id="value" type="number" placeholder="mg/dL (e.g., 112)" />
+        <select id="context">
+          <option value="random">random</option>
+          <option value="fasting">fasting</option>
+          <option value="pre_meal">pre_meal</option>
+          <option value="post_meal">post_meal</option>
+        </select>
+        <button id="saveBtn" class="button">Save</button>
+      </div>
+    </section>
+
+    <!-- Readings -->
+    <section class="card">
+      <h3>Recent Readings</h3>
+      <div id="readings"></div>
+    </section>
+
+    <!-- Alerts -->
+    <section class="card">
+      <h3>Alerts</h3>
+      <div id="alerts"></div>
+    </section>
+
+    <!-- Medications -->
+    <section class="card">
+      <h3>Medications</h3>
+
+      <!-- Existing meds list -->
+      <div id="medList"></div>
+
+      <hr />
+
+      <!-- Multiple medication input rows -->
+      <h4>Add / Update Medications</h4>
+      <p style="font-size: 13px; color:#6b7280;">
+        Use <b>Frequency</b> to describe reminder times, e.g.
+        <i>"08:00 &amp; 20:00 daily"</i> or <i>"Once daily at 21:00"</i>.
+      </p>
+
+      <div id="medFormRows">
+        <div class="row med-row">
+          <input class="medName" placeholder="Medication name (e.g. Metformin)" />
+          <input class="medDose" placeholder="Dosage (e.g. 500mg)" />
+          <input class="medFreq" placeholder="Frequency / time (e.g. 08:00 & 20:00)" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 8px;">
+        <button id="addRowBtn" class="button secondary">+ Add another row</button>
+        <button id="saveMedsBtn" class="button">Save medications</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id");
+
+    // Load patient, readings, and alerts
+    async function refresh() {
+      const p = await api(`/patients/${id}`);
+      document.getElementById("patientName").textContent = p.name;
+      document.getElementById("patientType").textContent = p.diabetes_type;
+
+      const rs = await api(`/patients/${id}/readings`);
+      const rDiv = document.getElementById("readings");
+      rDiv.innerHTML = rs
+        .map(
+          (r) =>
+            `<div class="list-row">${new Date(r.timestamp).toLocaleString()} —
+            <b>${r.value_mgdl}</b> mg/dL (${r.context})</div>`
+        )
+        .join("");
+
+      const as = await api(`/patients/${id}/alerts`);
+      const aDiv = document.getElementById("alerts");
+      aDiv.innerHTML = as
+        .map(
+          (a) =>
+            `<div class="list-row">
+              <span class="badge ${a.severity}">${a.severity}</span>
+              ${new Date(a.timestamp).toLocaleString()} — ${a.message}
+            </div>`
+        )
+        .join("");
+    }
+
+    // Log new glucose reading
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const value = parseFloat(document.getElementById("value").value);
+      const context = document.getElementById("context").value;
+      if (!Number.isFinite(value)) return alert("Enter a valid number.");
+
+      await api("/readings", {
+        method: "POST",
+        body: { patient_id: +id, value_mgdl: value, context },
+      });
+
+      document.getElementById("value").value = "";
+      refresh();
+    });
+
+    // --- Medication Tracker ---
+
+    // Load meds from backend and render
+    async function loadMeds() {
+      const meds = await api(`/patients/${id}/medications`);
+      const div = document.getElementById("medList");
+
+      if (!meds.length) {
+        div.innerHTML = "<p>No medications recorded yet.</p>";
+        return;
+      }
+
+      div.innerHTML = meds
+        .map(
+          (m) => `
+        <div class="list-row">
+          <b>${m.name}</b>
+          ${m.dosage ? ` — ${m.dosage}` : ""}
+          ${m.frequency ? ` — <i>${m.frequency}</i>` : ""}
+          <button onclick="deleteMed(${m.id})" class="button danger small" style="margin-left:8px;">x</button>
+        </div>`
+        )
+        .join("");
+    }
+
+    // Delete a medication
+    async function deleteMed(medId) {
+      await api(`/medications/${medId}`, { method: "DELETE" });
+      loadMeds();
+    }
+    // expose for inline onclick
+    window.deleteMed = deleteMed;
+
+    // Add a new empty medication row
+    function addMedRow() {
+      const container = document.getElementById("medFormRows");
+      const firstRow = container.querySelector(".med-row");
+      const clone = firstRow.cloneNode(true);
+
+      clone.querySelectorAll("input").forEach((input) => (input.value = ""));
+      container.appendChild(clone);
+    }
+
+    document.getElementById("addRowBtn").addEventListener("click", (e) => {
+      e.preventDefault();
+      addMedRow();
+    });
+
+    // Save all medication rows
+    document.getElementById("saveMedsBtn").addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      const rows = document.querySelectorAll("#medFormRows .med-row");
+      let hasAny = false;
+
+      for (const row of rows) {
+        const name = row.querySelector(".medName").value.trim();
+        const dosage = row.querySelector(".medDose").value.trim();
+        const frequency = row.querySelector(".medFreq").value.trim();
+
+        if (!name) {
+          continue; // skip completely empty row
+        }
+
+        hasAny = true;
+
+        await api(`/patients/${id}/medications`, {
+          method: "POST",
+          body: { name, dosage, frequency },
+        });
+      }
+
+      if (!hasAny) {
+        alert("Please fill at least one medication name before saving.");
+        return;
+      }
+
+      // clear all input rows after save
+      document
+        .querySelectorAll("#medFormRows .med-row input")
+        .forEach((input) => (input.value = ""));
+
+      loadMeds();
+    });
+
+    // --- Page init ---
+    window.addEventListener("DOMContentLoaded", async () => {
+      if (!id) {
+        const name = prompt("New patient name (e.g., Ama Mensah):");
+        if (!name) return (location.href = "index.html");
+
+        const created = await api("/patients", {
+          method: "POST",
+          body: { name, diabetes_type: "T2D" },
+        });
+
+        location.href = `patient.html?id=${created.id}`;
+      } else {
+        await refresh();
+        await loadMeds();
+      }
+    });
+  </script>
+</body>
+</html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Care+ — Patient</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <a href="index.html" class="button">← Back</a>
+    <h1>Patient</h1>
+  </header>
+
+  <main>
+    <!-- Patient Info -->
+    <section class="card">
+      <h3 id="patientName">Loading…</h3>
+      <p id="patientType"></p>
+    </section>
+
+    <!-- Log Reading -->
+    <section class="card">
+      <h3>Log Reading</h3>
+      <div class="row">
+        <input id="value" type="number" placeholder="mg/dL (e.g., 112)" />
+        <select id="context">
+          <option value="random">random</option>
+          <option value="fasting">fasting</option>
+          <option value="pre_meal">pre_meal</option>
+          <option value="post_meal">post_meal</option>
+        </select>
+        <button id="saveBtn" class="button">Save</button>
+      </div>
+    </section>
+
+    <!-- Readings -->
+    <section class="card">
+      <h3>Recent Readings</h3>
+      <div id="readings"></div>
+    </section>
+
+    <!-- Alerts -->
+    <section class="card">
+      <h3>Alerts</h3>
+      <div id="alerts"></div>
+    </section>
+
+    <!-- Medications -->
+    <section class="card">
+      <h3>Medications</h3>
+
+      <!-- Existing meds list -->
+      <div id="medList"></div>
+
+      <hr />
+
+      <!-- Multiple medication input rows -->
+      <h4>Add / Update Medications</h4>
+      <p style="font-size: 13px; color:#6b7280;">
+        Use <b>Frequency</b> to describe reminder times, e.g.
+        <i>"08:00 &amp; 20:00 daily"</i> or <i>"Once daily at 21:00"</i>.
+      </p>
+
+      <div id="medFormRows">
+        <div class="row med-row">
+          <input class="medName" placeholder="Medication name (e.g. Metformin)" />
+          <input class="medDose" placeholder="Dosage (e.g. 500mg)" />
+          <input class="medFreq" placeholder="Frequency / time (e.g. 08:00 & 20:00)" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 8px;">
+        <button id="addRowBtn" class="button secondary">+ Add another row</button>
+        <button id="saveMedsBtn" class="button">Save medications</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id");
+
+    // Load patient, readings, and alerts
+    async function refresh() {
+      const p = await api(`/patients/${id}`);
+      document.getElementById("patientName").textContent = p.name;
+      document.getElementById("patientType").textContent = p.diabetes_type;
+
+      const rs = await api(`/patients/${id}/readings`);
+      const rDiv = document.getElementById("readings");
+      rDiv.innerHTML = rs
+        .map(
+          (r) =>
+            `<div class="list-row">${new Date(r.timestamp).toLocaleString()} —
+            <b>${r.value_mgdl}</b> mg/dL (${r.context})</div>`
+        )
+        .join("");
+
+      const as = await api(`/patients/${id}/alerts`);
+      const aDiv = document.getElementById("alerts");
+      aDiv.innerHTML = as
+        .map(
+          (a) =>
+            `<div class="list-row">
+              <span class="badge ${a.severity}">${a.severity}</span>
+              ${new Date(a.timestamp).toLocaleString()} — ${a.message}
+            </div>`
+        )
+        .join("");
+    }
+
+    // Log new glucose reading
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      const value = parseFloat(document.getElementById("value").value);
+      const context = document.getElementById("context").value;
+      if (!Number.isFinite(value)) return alert("Enter a valid number.");
+
+      await api("/readings", {
+        method: "POST",
+        body: { patient_id: +id, value_mgdl: value, context },
+      });
+
+      document.getElementById("value").value = "";
+      refresh();
+    });
+
+    // --- Medication Tracker ---
+
+    // Load meds from backend and render
+    async function loadMeds() {
+      const meds = await api(`/patients/${id}/medications`);
+      const div = document.getElementById("medList");
+
+      if (!meds.length) {
+        div.innerHTML = "<p>No medications recorded yet.</p>";
+        return;
+      }
+
+      div.innerHTML = meds
+        .map(
+          (m) => `
+        <div class="list-row">
+          <b>${m.name}</b>
+          ${m.dosage ? ` — ${m.dosage}` : ""}
+          ${m.frequency ? ` — <i>${m.frequency}</i>` : ""}
+          <button onclick="deleteMed(${m.id})" class="button danger small" style="margin-left:8px;">x</button>
+        </div>`
+        )
+        .join("");
+    }
+
+    // Delete a medication
+    async function deleteMed(medId) {
+      await api(`/medications/${medId}`, { method: "DELETE" });
+      loadMeds();
+    }
+    // expose for inline onclick
+    window.deleteMed = deleteMed;
+
+    // Add a new empty medication row
+    function addMedRow() {
+      const container = document.getElementById("medFormRows");
+      const firstRow = container.querySelector(".med-row");
+      const clone = firstRow.cloneNode(true);
+
+      clone.querySelectorAll("input").forEach((input) => (input.value = ""));
+      container.appendChild(clone);
+    }
+
+    document.getElementById("addRowBtn").addEventListener("click", (e) => {
+      e.preventDefault();
+      addMedRow();
+    });
+
+    // Save all medication rows
+    document.getElementById("saveMedsBtn").addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      const rows = document.querySelectorAll("#medFormRows .med-row");
+      let hasAny = false;
+
+      for (const row of rows) {
+        const name = row.querySelector(".medName").value.trim();
+        const dosage = row.querySelector(".medDose").value.trim();
+        const frequency = row.querySelector(".medFreq").value.trim();
+
+        if (!name) {
+          continue; // skip completely empty row
+        }
+
+        hasAny = true;
+
+        await api(`/patients/${id}/medications`, {
+          method: "POST",
+          body: { name, dosage, frequency },
+        });
+      }
+
+      if (!hasAny) {
+        alert("Please fill at least one medication name before saving.");
+        return;
+      }
+
+      // clear all input rows after save
+      document
+        .querySelectorAll("#medFormRows .med-row input")
+        .forEach((input) => (input.value = ""));
+
+      loadMeds();
+    });
+
+    // --- Page init ---
+    window.addEventListener("DOMContentLoaded", async () => {
+      if (!id) {
+        const name = prompt("New patient name (e.g., Ama Mensah):");
+        if (!name) return (location.href = "index.html");
+
+        const created = await api("/patients", {
+          method: "POST",
+          body: { name, diabetes_type: "T2D" },
+        });
+
+        location.href = `patient.html?id=${created.id}`;
+      } else {
+        await refresh();
+        await loadMeds();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Care+ — Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Care+ Dashboard</h1>
+    <button id="addPatientBtn" class="button">+ New Patient</button>
+  </header>
+
+  <main>
+    <!-- Summary section -->
+    <section class="summary">
+      <div class="summary-card">
+        <h2 id="totalPatients">0</h2>
+        <p>Total Patients</p>
+      </div>
+      <div class="summary-card">
+        <h2 id="avgGlucose">–</h2>
+        <p>Average Glucose (mg/dL)</p>
+      </div>
+      <div class="summary-card">
+        <h2 id="totalAlerts">0</h2>
+        <p>Alerts</p>
+      </div>
+    </section>
+
+    <!-- Patient search -->
+    <section class="search-bar">
+      <input id="searchInput" type="text" placeholder="Search patient by name..." />
+    </section>
+
+    <!-- Patient list -->
+    <section id="patients" class="cards"></section>
+
+    <!-- System trend chart -->
+    <section class="card">
+      <h3>System Glucose Trend (All Patients)</h3>
+      <canvas id="systemChart" height="100"></canvas>
+    </section>
+  </main>
+
+  <!-- Patient Modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="modalTitle">Add New Patient</h2>
+
+      <label>Name:</label>
+      <input id="newName" type="text" placeholder="Patient Name" />
+
+      <label>Diabetes Type:</label>
+      <select id="newType">
+        <option value="T1D">Type 1</option>
+        <option value="T2D" selected>Type 2</option>
+      </select>
+
+      <label>Date of Birth:</label>
+      <input id="newDOB" type="date" />
+
+      <label>Blood Pressure:</label>
+      <input id="newBP" type="text" placeholder="e.g., 120/80 mmHg" />
+
+      <label>Heart Rate (bpm):</label>
+      <input id="newHR" type="number" placeholder="e.g., 72" />
+
+      <label>Weight (kg):</label>
+      <input id="newWeight" type="number" placeholder="e.g., 68" />
+
+      <div class="modal-actions">
+        <button id="savePatient" class="button">Save</button>
+        <button id="cancelPatient" class="button secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    let systemChart;
+    let editingId = null;
+
+    // Helper: Calculate Age
+    function calculateAge(dobString) {
+      if (!dobString) return "N/A";
+      const dob = new Date(dobString);
+      const diff = Date.now() - dob.getTime();
+      const age = new Date(diff).getUTCFullYear() - 1970;
+      return age;
+    }
+
+    async function loadPatients() {
+      const list = await api('/patients');
+      const container = document.getElementById('patients');
+      const totalPatients = document.getElementById('totalPatients');
+      const avgGlucose = document.getElementById('avgGlucose');
+      const totalAlerts = document.getElementById('totalAlerts');
+      const searchValue = document.getElementById('searchInput').value.toLowerCase();
+
+      const filtered = list.filter(p => p.name.toLowerCase().includes(searchValue));
+      container.innerHTML = '';
+      totalPatients.textContent = list.length;
+
+      let allReadings = [];
+      let totalAlertCount = 0;
+
+      for (const p of filtered) {
+        const readings = await api(`/patients/${p.id}/readings`);
+        const alerts = await api(`/patients/${p.id}/alerts`);
+        const latest = readings[0]?.value_mgdl || "–";
+        const alertCount = alerts.length;
+        totalAlertCount += alertCount;
+
+        const alertLevel =
+          alertCount > 5 ? "high" :
+          alertCount > 0 ? "medium" : "low";
+
+        const age = calculateAge(p.date_of_birth);
+
+        const card = document.createElement('div');
+        card.className = `card alert-${alertLevel}`;
+        card.innerHTML = `
+          <div class="card-header">
+            <h3>${p.name}</h3>
+            <span class="badge ${alertLevel}">
+              ${alertCount > 0 ? `${alertCount} alerts` : '✅ Stable'}
+            </span>
+          </div>
+          <p><b>Type:</b> ${p.diabetes_type}</p>
+          <p><b>DOB:</b> ${p.date_of_birth ? new Date(p.date_of_birth).toLocaleDateString() : '—'} 
+             (${age !== "N/A" ? age + ' yrs' : 'N/A'})</p>
+          <p><b>Blood Pressure:</b> ${p.blood_pressure || '—'}</p>
+          <p><b>Heart Rate:</b> ${p.heart_rate ? p.heart_rate + ' bpm' : '—'}</p>
+          <p><b>Weight:</b> ${p.weight ? p.weight + ' kg' : '—'}</p>
+          <p><b>Last Glucose Reading:</b> ${latest} mg/dL</p>
+          <div class="row">
+            <a class="button" href="patient.html?id=${p.id}">Open</a>
+            <button class="button secondary edit-btn"
+              data-id="${p.id}"
+              data-name="${p.name}"
+              data-type="${p.diabetes_type}"
+              data-dob="${p.date_of_birth || ''}"
+              data-bp="${p.blood_pressure || ''}"
+              data-hr="${p.heart_rate || ''}"
+              data-weight="${p.weight || ''}">
+              Edit
+            </button>
+            <button class="button danger delete-btn" data-id="${p.id}">🗑 Delete</button>
+          </div>
+        `;
+        container.appendChild(card);
+        allReadings.push(...readings.map(r => r.value_mgdl));
+      }
+
+      // Averages
+      const avg = allReadings.length
+        ? (allReadings.reduce((a, b) => a + b, 0) / allReadings.length).toFixed(1)
+        : '–';
+      avgGlucose.textContent = avg;
+      totalAlerts.textContent = totalAlertCount;
+
+      // Chart
+      const ctx = document.getElementById('systemChart');
+      const labels = Array.from({ length: allReadings.length }, (_, i) => i + 1);
+      if (systemChart) systemChart.destroy();
+      systemChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'All Readings',
+            data: allReadings,
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16,185,129,0.2)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          scales: { y: { min: 50, max: 350 } },
+          plugins: { legend: { display: false } }
+        }
+      });
+
+      // Delete
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const id = e.target.dataset.id;
+          if (confirm('Are you sure you want to delete this patient?')) {
+            await api(`/patients/${id}`, { method: 'DELETE' });
+            await loadPatients();
+          }
+        });
+      });
+
+      // Edit
+      document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const id = e.target.dataset.id;
+          const name = e.target.dataset.name;
+          const type = e.target.dataset.type;
+          const dob = e.target.dataset.dob;
+          const bp = e.target.dataset.bp || '';
+          const hr = e.target.dataset.hr || '';
+          const weight = e.target.dataset.weight || '';
+
+          document.getElementById('modalTitle').textContent = 'Edit Patient';
+          document.getElementById('newName').value = name;
+          document.getElementById('newType').value = type;
+          document.getElementById('newDOB').value = dob ? new Date(dob).toISOString().substring(0, 10) : '';
+          document.getElementById('newBP').value = bp;
+          document.getElementById('newHR').value = hr;
+          document.getElementById('newWeight').value = weight;
+          editingId = id;
+          modal.classList.remove('hidden');
+        });
+      });
+    }
+
+    // Modal controls
+    const modal = document.getElementById('modal');
+    document.getElementById('addPatientBtn').addEventListener('click', () => {
+      editingId = null;
+      document.getElementById('modalTitle').textContent = 'Add New Patient';
+      document.getElementById('newName').value = '';
+      document.getElementById('newType').value = 'T2D';
+      document.getElementById('newDOB').value = '';
+      document.getElementById('newBP').value = '';
+      document.getElementById('newHR').value = '';
+      document.getElementById('newWeight').value = '';
+      modal.classList.remove('hidden');
+    });
+
+    document.getElementById('cancelPatient').addEventListener('click', () => {
+      modal.classList.add('hidden');
+    });
+
+    // Save patient
+    document.getElementById('savePatient').addEventListener('click', async () => {
+      const name = document.getElementById('newName').value.trim();
+      const type = document.getElementById('newType').value;
+      const dob = document.getElementById('newDOB').value;
+      const bp = document.getElementById('newBP').value.trim();
+      const hr = document.getElementById('newHR').value;
+      const weight = document.getElementById('newWeight').value;
+
+      if (!name) return alert("Please enter a name");
+
+      const body = {
+        name,
+        diabetes_type: type,
+        date_of_birth: dob || null,
+        blood_pressure: bp || null,
+        heart_rate: hr ? parseInt(hr) : null,
+        weight: weight ? parseFloat(weight) : null
+      };
+
+      if (editingId) {
+        await api(`/patients/${editingId}`, { method: 'PUT', body });
+      } else {
+        await api('/patients', { method: 'POST', body });
+      }
+
+      modal.classList.add('hidden');
+      await loadPatients();
+    });
+
+    // Live search
+    document.getElementById('searchInput').addEventListener('input', loadPatients);
+    window.addEventListener('DOMContentLoaded', loadPatients);
+  </script>
+</body>
+</html>
