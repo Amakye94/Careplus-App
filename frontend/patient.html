@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Care+ — Patient Care Record</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .subsection { margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd; }
+    .row input, .row select { margin-right: 8px; }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <a href="index.html" class="button">← Back</a>
+  <h1 id="patientHeader">Patient</h1>
+</header>
+
+<main>
+
+  <!-- PATIENT PROFILE -->
+  <section class="card">
+    <h2>Patient Information</h2>
+    <p><b>Name:</b> <span id="pName">Loading…</span></p>
+    <p><b>Age:</b> <span id="pAge">–</span></p>
+    <p><b>Gender:</b> <span id="pGender">–</span></p>
+    <p><b>Contact:</b> <span id="pContact">–</span></p>
+
+    <p><b>Diabetes Type:</b> <span id="pType"></span></p>
+    <p><b>Total Readings:</b> <span id="pTotal"></span></p>
+    <p><b>Alerts:</b> <span id="pAlerts"></span></p>
+  </section>
+
+  <!-- LOG GLUCOSE -->
+  <section class="card">
+    <h2>Log Glucose Reading</h2>
+    <div class="row">
+      <input id="value" type="number" placeholder="mg/dL (e.g. 120)" />
+      <select id="context">
+        <option value="random">Random</option>
+        <option value="fasting">Fasting</option>
+        <option value="pre_meal">Pre-meal</option>
+        <option value="post_meal">Post-meal</option>
+      </select>
+      <button id="saveReadingBtn" class="button">Save</button>
+    </div>
+  </section>
+
+  <!-- LOG HEART RATE -->
+  <section class="card">
+    <h2>Log Heart Rate</h2>
+    <div class="row">
+      <input id="hrValue" type="number" placeholder="BPM (e.g. 78)" />
+      <button id="saveHrBtn" class="button">Save</button>
+    </div>
+  </section>
+
+  <!-- LOG BLOOD PRESSURE -->
+  <section class="card">
+    <h2>Log Blood Pressure</h2>
+    <div class="row">
+      <input id="bpSys" type="number" placeholder="Systolic (e.g. 120)" />
+      <input id="bpDia" type="number" placeholder="Diastolic (e.g. 80)" />
+      <button id="saveBpBtn" class="button">Save</button>
+    </div>
+  </section>
+
+  <!-- RECENT READINGS -->
+  <section class="card">
+    <h2>Recent Glucose Readings</h2>
+    <div id="readingList"></div>
+  </section>
+
+  <!-- HEART RATE HISTORY -->
+  <section class="card">
+    <h2>Heart Rate History</h2>
+    <div id="hrList"></div>
+  </section>
+
+  <!-- BLOOD PRESSURE HISTORY -->
+  <section class="card">
+    <h2>Blood Pressure History</h2>
+    <div id="bpList"></div>
+  </section>
+
+  <!-- ALERTS -->
+  <section class="card">
+    <h2>Alerts</h2>
+    <div id="alertList"></div>
+  </section>
+
+  <!-- MEDICATIONS -->
+  <section class="card">
+    <h2>Medications</h2>
+
+    <div id="medList"></div>
+    <hr>
+
+    <h3>Add Medication</h3>
+    <div id="medRows">
+      <div class="row med-row">
+        <input class="medName" placeholder="Name (e.g. Metformin)" />
+        <input class="medDose" placeholder="Dose (e.g. 500mg)" />
+        <input class="medFreq" placeholder="Frequency (e.g. 2× daily)" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 10px;">
+      <button id="addMedRowBtn" class="button secondary">+ Add Row</button>
+      <button id="saveMedsBtn" class="button">Save Medications</button>
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+
+<script>
+const params = new URLSearchParams(location.search);
+const id = params.get("id");
+
+/* ---------------- PROFILE LOADING ---------------- */
+async function loadProfile() {
+  const p = await api(`/patients/${id}`);
+
+  document.getElementById("patientHeader").textContent = p.name;
+  document.getElementById("pName").textContent = p.name;
+  document.getElementById("pType").textContent = p.diabetes_type;
+
+  document.getElementById("pAge").textContent = p.age ?? "–";
+  document.getElementById("pGender").textContent = p.gender ?? "–";
+  document.getElementById("pContact").textContent = p.contact ?? "–";
+
+  const rs = await api(`/patients/${id}/readings`);
+  const as = await api(`/patients/${id}/alerts`);
+
+  document.getElementById("pTotal").textContent = rs.length;
+  document.getElementById("pAlerts").textContent = as.length;
+}
+
+/* ---------------- GLUCOSE READINGS ---------------- */
+async function loadReadings() {
+  const readings = await api(`/patients/${id}/readings`);
+  const div = document.getElementById("readingList");
+
+  div.innerHTML = readings
+    .map(r =>
+      `<div class="list-row">
+         ${new Date(r.timestamp).toLocaleString()} —
+         <b>${r.value_mgdl}</b> mg/dL (${r.context})
+       </div>`
+    )
+    .join("");
+}
+
+document.getElementById("saveReadingBtn").addEventListener("click", async () => {
+  const value = +document.getElementById("value").value;
+  const context = document.getElementById("context").value;
+  if (!value) return alert("Enter glucose value");
+
+  await api("/readings", {
+    method: "POST",
+    body: { patient_id: +id, value_mgdl: value, context }
+  });
+
+  loadReadings();
+  loadProfile();
+});
+
+/* ---------------- HEART RATE ---------------- */
+async function loadHeartRate() {
+  const hr = await api(`/patients/${id}/heartrate`);
+  const div = document.getElementById("hrList");
+
+  div.innerHTML = hr
+    .map(h =>
+      `<div class="list-row">
+         ${new Date(h.timestamp).toLocaleString()} —
+         <b>${h.bpm}</b> BPM
+       </div>`
+    )
+    .join("");
+}
+
+document.getElementById("saveHrBtn").addEventListener("click", async () => {
+  const bpm = +document.getElementById("hrValue").value;
+  if (!bpm) return alert("Enter heart rate");
+
+  await api(`/patients/${id}/heartrate`, {
+    method: "POST",
+    body: { bpm }
+  });
+
+  loadHeartRate();
+});
+
+/* ---------------- BLOOD PRESSURE ---------------- */
+async function loadBP() {
+  const bp = await api(`/patients/${id}/bloodpressure`);
+  const div = document.getElementById("bpList");
+
+  div.innerHTML = bp
+    .map(b =>
+      `<div class="list-row">
+         ${new Date(b.timestamp).toLocaleString()} —
+         <b>${b.systolic}/${b.diastolic}</b> mmHg
+       </div>`
+    )
+    .join("");
+}
+
+document.getElementById("saveBpBtn").addEventListener("click", async () => {
+  const sys = +document.getElementById("bpSys").value;
+  const dia = +document.getElementById("bpDia").value;
+
+  if (!sys || !dia) return alert("Enter valid BP numbers");
+
+  await api(`/patients/${id}/bloodpressure`, {
+    method: "POST",
+    body: { systolic: sys, diastolic: dia }
+  });
+
+  loadBP();
+});
+
+/* ---------------- MEDICATIONS ---------------- */
+async function loadMeds() {
+  const meds = await api(`/patients/${id}/medications`);
+  const div = document.getElementById("medList");
+
+  if (!meds.length) {
+    div.innerHTML = "<p>No medications yet.</p>";
+    return;
+  }
+
+  div.innerHTML = meds
+    .map(m =>
+      `<div class="list-row">
+         <b>${m.name}</b> — ${m.dosage} (${m.frequency})
+         <button class="button danger small" onclick="deleteMed(${m.id})">x</button>
+       </div>`
+    )
+    .join("");
+}
+
+window.deleteMed = async function (medId) {
+  await api(`/medications/${medId}`, { method: "DELETE" });
+  loadMeds();
+};
+
+document.getElementById("addMedRowBtn").addEventListener("click", () => {
+  const container = document.getElementById("medRows");
+  const first = container.querySelector(".med-row");
+  const clone = first.cloneNode(true);
+
+  clone.querySelectorAll("input").forEach(x => (x.value = ""));
+  container.appendChild(clone);
+});
+
+document.getElementById("saveMedsBtn").addEventListener("click", async () => {
+  const rows = document.querySelectorAll(".med-row");
+
+  for (const r of rows) {
+    const name = r.querySelector(".medName").value;
+    if (!name) continue;
+
+    await api(`/patients/${id}/medications`, {
+      method: "POST",
+      body: {
+        name,
+        dosage: r.querySelector(".medDose").value,
+        frequency: r.querySelector(".medFreq").value
+      }
+    });
+  }
+
+  loadMeds();
+});
+
+/* ---------------- INIT ---------------- */
+window.addEventListener("DOMContentLoaded", async () => {
+  await loadProfile();
+  await loadReadings();
+  await loadHeartRate();
+  await loadBP();
+  await loadAlerts();
+  await loadMeds();
+});
+
+async function loadAlerts() {
+  const alerts = await api(`/patients/${id}/alerts`);
+  const div = document.getElementById("alertList");
+
+  div.innerHTML = alerts
+    .map(a =>
+      `<div class="list-row">
+         <span class="badge ${a.severity}">${a.severity}</span>
+         ${new Date(a.timestamp).toLocaleString()} — ${a.message}
+       </div>`
+    )
+    .join("");
+}
+</script>
+
+</body>
+</html>
