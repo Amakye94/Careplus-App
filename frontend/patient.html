@@ -20,21 +20,42 @@
 
 <main>
 
-  <!-- PATIENT PROFILE -->
-  <section class="card">
+  <!-- NEW PATIENT FORM -->
+  <section id="newPatientForm" class="card" style="display:none;">
+    <h2>Create New Patient</h2>
+
+    <div class="row">
+      <input id="newName" placeholder="Full Name" />
+      <input id="newAge" type="number" placeholder="Age" />
+      <select id="newGender">
+        <option value="">Gender</option>
+        <option>Male</option>
+        <option>Female</option>
+      </select>
+      <input id="newContact" placeholder="Contact" />
+      <select id="newType">
+        <option value="T2D">Type 2 Diabetes</option>
+        <option value="T1D">Type 1 Diabetes</option>
+      </select>
+    </div>
+
+    <button id="createPatientBtn" class="button">Save Patient</button>
+  </section>
+
+  <!-- EXISTING PATIENT INFO -->
+  <section id="profileSection" class="card">
     <h2>Patient Information</h2>
-    <p><b>Name:</b> <span id="pName">Loading…</span></p>
+    <p><b>Name:</b> <span id="pName">–</span></p>
     <p><b>Age:</b> <span id="pAge">–</span></p>
     <p><b>Gender:</b> <span id="pGender">–</span></p>
     <p><b>Contact:</b> <span id="pContact">–</span></p>
-
-    <p><b>Diabetes Type:</b> <span id="pType"></span></p>
-    <p><b>Total Readings:</b> <span id="pTotal"></span></p>
-    <p><b>Alerts:</b> <span id="pAlerts"></span></p>
+    <p><b>Diabetes Type:</b> <span id="pType">–</span></p>
+    <p><b>Total Readings:</b> <span id="pTotal">–</span></p>
+    <p><b>Alerts:</b> <span id="pAlerts">–</span></p>
   </section>
 
-  <!-- LOG GLUCOSE -->
-  <section class="card">
+  <!-- GLUCOSE LOGGING -->
+  <section id="logSection" class="card">
     <h2>Log Glucose Reading</h2>
     <div class="row">
       <input id="value" type="number" placeholder="mg/dL (e.g. 120)" />
@@ -48,16 +69,17 @@
     </div>
   </section>
 
-  <!-- LOG HEART RATE -->
+  <!-- HEART RATE -->
   <section class="card">
     <h2>Log Heart Rate</h2>
     <div class="row">
       <input id="hrValue" type="number" placeholder="BPM (e.g. 78)" />
       <button id="saveHrBtn" class="button">Save</button>
     </div>
+    <div id="hrList"></div>
   </section>
 
-  <!-- LOG BLOOD PRESSURE -->
+  <!-- BLOOD PRESSURE -->
   <section class="card">
     <h2>Log Blood Pressure</h2>
     <div class="row">
@@ -65,24 +87,13 @@
       <input id="bpDia" type="number" placeholder="Diastolic (e.g. 80)" />
       <button id="saveBpBtn" class="button">Save</button>
     </div>
+    <div id="bpList"></div>
   </section>
 
-  <!-- RECENT READINGS -->
+  <!-- RECENT GLUCOSE READINGS -->
   <section class="card">
     <h2>Recent Glucose Readings</h2>
     <div id="readingList"></div>
-  </section>
-
-  <!-- HEART RATE HISTORY -->
-  <section class="card">
-    <h2>Heart Rate History</h2>
-    <div id="hrList"></div>
-  </section>
-
-  <!-- BLOOD PRESSURE HISTORY -->
-  <section class="card">
-    <h2>Blood Pressure History</h2>
-    <div id="bpList"></div>
   </section>
 
   <!-- ALERTS -->
@@ -94,7 +105,6 @@
   <!-- MEDICATIONS -->
   <section class="card">
     <h2>Medications</h2>
-
     <div id="medList"></div>
     <hr>
 
@@ -107,7 +117,7 @@
       </div>
     </div>
 
-    <div class="row" style="margin-top: 10px;">
+    <div class="row" style="margin-top:10px;">
       <button id="addMedRowBtn" class="button secondary">+ Add Row</button>
       <button id="saveMedsBtn" class="button">Save Medications</button>
     </div>
@@ -116,46 +126,72 @@
 </main>
 
 <script src="app.js"></script>
-
 <script>
 const params = new URLSearchParams(location.search);
 const id = params.get("id");
+const isNew = params.get("new") === "1";
 
-/* ---------------- PROFILE LOADING ---------------- */
+//
+// NEW PATIENT MODE
+//
+if (isNew) {
+  document.getElementById("newPatientForm").style.display = "block";
+  document.getElementById("profileSection").style.display = "none";
+  document.getElementById("logSection").style.display = "none";
+}
+
+document.getElementById("createPatientBtn")?.addEventListener("click", async () => {
+  const name = document.getElementById("newName").value;
+  if (!name) return alert("Name required");
+
+  const created = await api("/patients", {
+    method: "POST",
+    body: {
+      name,
+      age: document.getElementById("newAge").value,
+      gender: document.getElementById("newGender").value,
+      contact: document.getElementById("newContact").value,
+      diabetes_type: document.getElementById("newType").value
+    }
+  });
+
+  location.href = `patient.html?id=${created.id}`;
+});
+
+//
+// EXISTING PATIENT MODE
+//
 async function loadProfile() {
+  if (isNew) return;
+
   const p = await api(`/patients/${id}`);
 
   document.getElementById("patientHeader").textContent = p.name;
   document.getElementById("pName").textContent = p.name;
-  document.getElementById("pType").textContent = p.diabetes_type;
-
   document.getElementById("pAge").textContent = p.age ?? "–";
   document.getElementById("pGender").textContent = p.gender ?? "–";
   document.getElementById("pContact").textContent = p.contact ?? "–";
+  document.getElementById("pType").textContent = p.diabetes_type;
 
-  const rs = await api(`/patients/${id}/readings`);
-  const as = await api(`/patients/${id}/alerts`);
+  const rs = await api(`/patients/${p.id}/readings`);
+  const as = await api(`/patients/${p.id}/alerts`);
 
   document.getElementById("pTotal").textContent = rs.length;
   document.getElementById("pAlerts").textContent = as.length;
 }
 
-/* ---------------- GLUCOSE READINGS ---------------- */
+//
+// READINGS
+//
 async function loadReadings() {
+  if (isNew) return;
   const readings = await api(`/patients/${id}/readings`);
-  const div = document.getElementById("readingList");
-
-  div.innerHTML = readings
-    .map(r =>
-      `<div class="list-row">
-         ${new Date(r.timestamp).toLocaleString()} —
-         <b>${r.value_mgdl}</b> mg/dL (${r.context})
-       </div>`
-    )
+  document.getElementById("readingList").innerHTML = readings
+    .map(r => `<div class="list-row">${new Date(r.timestamp).toLocaleString()} — <b>${r.value_mgdl}</b> mg/dL (${r.context})</div>`)
     .join("");
 }
 
-document.getElementById("saveReadingBtn").addEventListener("click", async () => {
+document.getElementById("saveReadingBtn")?.addEventListener("click", async () => {
   const value = +document.getElementById("value").value;
   const context = document.getElementById("context").value;
   if (!value) return alert("Enter glucose value");
@@ -169,24 +205,20 @@ document.getElementById("saveReadingBtn").addEventListener("click", async () => 
   loadProfile();
 });
 
-/* ---------------- HEART RATE ---------------- */
+//
+// HEART RATE
+//
 async function loadHeartRate() {
+  if (isNew) return;
   const hr = await api(`/patients/${id}/heartrate`);
-  const div = document.getElementById("hrList");
-
-  div.innerHTML = hr
-    .map(h =>
-      `<div class="list-row">
-         ${new Date(h.timestamp).toLocaleString()} —
-         <b>${h.bpm}</b> BPM
-       </div>`
-    )
+  document.getElementById("hrList").innerHTML = hr
+    .map(h => `<div class="list-row">${new Date(h.timestamp).toLocaleString()} — <b>${h.bpm}</b> BPM</div>`)
     .join("");
 }
 
-document.getElementById("saveHrBtn").addEventListener("click", async () => {
+document.getElementById("saveHrBtn")?.addEventListener("click", async () => {
   const bpm = +document.getElementById("hrValue").value;
-  if (!bpm) return alert("Enter heart rate");
+  if (!bpm) return alert("Enter HR");
 
   await api(`/patients/${id}/heartrate`, {
     method: "POST",
@@ -196,26 +228,21 @@ document.getElementById("saveHrBtn").addEventListener("click", async () => {
   loadHeartRate();
 });
 
-/* ---------------- BLOOD PRESSURE ---------------- */
+//
+// BLOOD PRESSURE
+//
 async function loadBP() {
+  if (isNew) return;
   const bp = await api(`/patients/${id}/bloodpressure`);
-  const div = document.getElementById("bpList");
-
-  div.innerHTML = bp
-    .map(b =>
-      `<div class="list-row">
-         ${new Date(b.timestamp).toLocaleString()} —
-         <b>${b.systolic}/${b.diastolic}</b> mmHg
-       </div>`
-    )
+  document.getElementById("bpList").innerHTML = bp
+    .map(b => `<div class="list-row">${new Date(b.timestamp).toLocaleString()} — <b>${b.systolic}/${b.diastolic}</b> mmHg</div>`)
     .join("");
 }
 
-document.getElementById("saveBpBtn").addEventListener("click", async () => {
+document.getElementById("saveBpBtn")?.addEventListener("click", async () => {
   const sys = +document.getElementById("bpSys").value;
   const dia = +document.getElementById("bpDia").value;
-
-  if (!sys || !dia) return alert("Enter valid BP numbers");
+  if (!sys || !dia) return alert("Enter BP");
 
   await api(`/patients/${id}/bloodpressure`, {
     method: "POST",
@@ -225,44 +252,32 @@ document.getElementById("saveBpBtn").addEventListener("click", async () => {
   loadBP();
 });
 
-/* ---------------- MEDICATIONS ---------------- */
+//
+// MEDICATIONS
+//
 async function loadMeds() {
+  if (isNew) return;
   const meds = await api(`/patients/${id}/medications`);
-  const div = document.getElementById("medList");
 
-  if (!meds.length) {
-    div.innerHTML = "<p>No medications yet.</p>";
-    return;
-  }
-
-  div.innerHTML = meds
-    .map(m =>
-      `<div class="list-row">
-         <b>${m.name}</b> — ${m.dosage} (${m.frequency})
-         <button class="button danger small" onclick="deleteMed(${m.id})">x</button>
-       </div>`
-    )
-    .join("");
+  document.getElementById("medList").innerHTML = meds.length
+    ? meds.map(m => `<div class="list-row"><b>${m.name}</b> — ${m.dosage} (${m.frequency}) <button class="button danger small" onclick="deleteMed(${m.id})">x</button></div>`).join("")
+    : "<p>No medications yet.</p>";
 }
 
-window.deleteMed = async function (medId) {
+window.deleteMed = async medId => {
   await api(`/medications/${medId}`, { method: "DELETE" });
   loadMeds();
 };
 
-document.getElementById("addMedRowBtn").addEventListener("click", () => {
-  const container = document.getElementById("medRows");
-  const first = container.querySelector(".med-row");
-  const clone = first.cloneNode(true);
-
-  clone.querySelectorAll("input").forEach(x => (x.value = ""));
-  container.appendChild(clone);
+document.getElementById("addMedRowBtn")?.addEventListener("click", () => {
+  const box = document.querySelector(".med-row");
+  const clone = box.cloneNode(true);
+  clone.querySelectorAll("input").forEach(x => x.value = "");
+  document.getElementById("medRows").appendChild(clone);
 });
 
-document.getElementById("saveMedsBtn").addEventListener("click", async () => {
-  const rows = document.querySelectorAll(".med-row");
-
-  for (const r of rows) {
+document.getElementById("saveMedsBtn")?.addEventListener("click", async () => {
+  for (const r of document.querySelectorAll(".med-row")) {
     const name = r.querySelector(".medName").value;
     if (!name) continue;
 
@@ -275,11 +290,23 @@ document.getElementById("saveMedsBtn").addEventListener("click", async () => {
       }
     });
   }
-
   loadMeds();
 });
 
-/* ---------------- INIT ---------------- */
+//
+// ALERTS
+//
+async function loadAlerts() {
+  if (isNew) return;
+  const alerts = await api(`/patients/${id}/alerts`);
+  document.getElementById("alertList").innerHTML = alerts
+    .map(a => `<div class="list-row"><span class="badge ${a.severity}">${a.severity}</span> ${new Date(a.timestamp).toLocaleString()} — ${a.message}</div>`)
+    .join("");
+}
+
+//
+// INIT
+//
 window.addEventListener("DOMContentLoaded", async () => {
   await loadProfile();
   await loadReadings();
@@ -288,20 +315,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   await loadAlerts();
   await loadMeds();
 });
-
-async function loadAlerts() {
-  const alerts = await api(`/patients/${id}/alerts`);
-  const div = document.getElementById("alertList");
-
-  div.innerHTML = alerts
-    .map(a =>
-      `<div class="list-row">
-         <span class="badge ${a.severity}">${a.severity}</span>
-         ${new Date(a.timestamp).toLocaleString()} — ${a.message}
-       </div>`
-    )
-    .join("");
-}
 </script>
 
 </body>

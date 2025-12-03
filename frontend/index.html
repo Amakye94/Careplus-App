@@ -6,100 +6,103 @@
   <title>Care+ Dashboard</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
-  <header>
-    <h1>Care+ Amakye Dashboard</h1>
-    <button id="addPatientBtn" class="button">+ New Patient</button>
-  </header>
 
-  <main>
-    <!-- Summary section -->
-    <section class="summary">
-      <div class="summary-card">
-        <h2 id="totalPatients">0</h2>
-        <p>Total Patients</p>
-      </div>
-      <div class="summary-card">
-        <h2 id="avgGlucose">–</h2>
-        <p>Average Glucose (mg/dL)</p>
-      </div>
-      <div class="summary-card">
-        <h2 id="totalAlerts">0</h2>
-        <p>Alerts</p>
-      </div>
-    </section>
+<header>
+  <h1>Care+ Amakye Dashboard</h1>
+  <button id="addPatientBtn" class="button">+ New Patient</button>
+</header>
 
-    <!-- Search bar -->
-    <section class="search-bar">
-      <input id="searchInput" type="text" placeholder="Search patient by name..." />
-    </section>
+<main>
 
-    <!-- Patient list -->
-    <section id="patients" class="cards"></section>
-  </main>
+  <!-- Summary Cards -->
+  <section class="summary">
+    <div class="summary-card">
+      <h2 id="totalPatients">0</h2>
+      <p>Total Patients</p>
+    </div>
+    <div class="summary-card">
+      <h2 id="avgGlucose">–</h2>
+      <p>Average Glucose (mg/dL)</p>
+    </div>
+    <div class="summary-card">
+      <h2 id="totalAlerts">0</h2>
+      <p>Alerts</p>
+    </div>
+  </section>
 
-  <script src="app.js"></script>
-  <script>
-    async function loadPatients() {
-      const patients = await api("/patients");
-      const container = document.getElementById("patients");
-      const searchValue = document.getElementById("searchInput").value.toLowerCase();
+  <!-- Search bar -->
+  <section class="search-bar">
+    <input id="searchInput" type="text" placeholder="Search patient by name..." />
+  </section>
 
-      const filtered = patients.filter(p => p.name.toLowerCase().includes(searchValue));
-      container.innerHTML = "";
+  <!-- Patient List -->
+  <section id="patients" class="cards"></section>
 
-      document.getElementById("totalPatients").textContent = patients.length;
+</main>
 
-      let allGlucose = [];
-      let totalAlerts = 0;
+<script src="app.js"></script>
+<script>
+async function loadPatients() {
+  const patients = await api("/patients");
+  const container = document.getElementById("patients");
+  const searchValue = document.getElementById("searchInput").value.toLowerCase();
 
-      for (const p of filtered) {
-        const readings = await api(`/patients/${p.id}/readings`);
-        const alerts = await api(`/patients/${p.id}/alerts`);
-        totalAlerts += alerts.length;
+  const filtered = patients.filter(p => p.name.toLowerCase().includes(searchValue));
+  container.innerHTML = "";
 
-        if (readings.length) {
-          allGlucose.push(...readings.map(r => r.value_mgdl));
-        }
+  document.getElementById("totalPatients").textContent = patients.length;
 
-        const latest = readings[0]?.value_mgdl ?? "–";
-        const card = document.createElement("div");
-        card.className = "card";
-        card.innerHTML = `
-          <h3>${p.name}</h3>
-          <p><b>Type:</b> ${p.diabetes_type}</p>
-          <p><b>Last Glucose:</b> ${latest} mg/dL</p>
-          <button onclick="openPatient(${p.id})" class="button">Open</button>
-        `;
-        container.appendChild(card);
-      }
+  let allGlucose = [];
+  let totalAlerts = 0;
 
-      document.getElementById("totalAlerts").textContent = totalAlerts;
+  for (const p of filtered) {
+    const readings = await api(`/patients/${p.id}/readings`);
+    const alerts = await api(`/patients/${p.id}/alerts`);
+    totalAlerts += alerts.length;
 
-      const avg =
-        allGlucose.length > 0
-          ? (allGlucose.reduce((a, b) => a + b, 0) / allGlucose.length).toFixed(1)
-          : "–";
-      document.getElementById("avgGlucose").textContent = avg;
+    if (readings.length) {
+      allGlucose.push(...readings.map(r => r.value_mgdl));
     }
 
-    function openPatient(id) {
-      location.href = `patient.html?id=${id}`;
-    }
+    const latest = readings[0]?.value_mgdl ?? "–";
+    const card = document.createElement("div");
+    card.className = "card";
 
-    document.getElementById("addPatientBtn").addEventListener("click", async () => {
-      const name = prompt("Enter new patient name:");
-      if (!name) return;
-      const created = await api("/patients", {
-        method: "POST",
-        body: { name, diabetes_type: "T2D" },
-      });
-      location.href = `patient.html?id=${created.id}`;
-    });
+    card.innerHTML = `
+      <h3>${p.name}</h3>
+      <p><b>Type:</b> ${p.diabetes_type}</p>
+      <p><b>Last Glucose:</b> ${latest} mg/dL</p>
+      <button onclick="openPatient(${p.id})" class="button">Open</button>
+    `;
 
-    document.getElementById("searchInput").addEventListener("input", loadPatients);
+    container.appendChild(card);
+  }
 
-    window.addEventListener("DOMContentLoaded", loadPatients);
-  </script>
+  document.getElementById("totalAlerts").textContent = totalAlerts;
+
+  const avg =
+    allGlucose.length > 0
+      ? (allGlucose.reduce((a, b) => a + b, 0) / allGlucose.length).toFixed(1)
+      : "–";
+
+  document.getElementById("avgGlucose").textContent = avg;
+}
+
+function openPatient(id) {
+  location.href = `patient.html?id=${id}`;
+}
+
+// NEW PATIENT WORKFLOW — go to patient.html in “create mode”
+document.getElementById("addPatientBtn").addEventListener("click", () => {
+  location.href = "patient.html?new=1";
+});
+
+document.getElementById("searchInput").addEventListener("input", loadPatients);
+
+window.addEventListener("DOMContentLoaded", loadPatients);
+</script>
+
 </body>
 </html>
